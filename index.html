@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-HK">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -43,10 +44,50 @@
     .page-turner.turn-prev { transform: rotateY(9deg) translateX(14px); opacity: .45; }
 
     /* Smaller PDF viewer on mobile. Desktop remains large for comfortable reading. */
-    .pdf-frame { height: 560px; width: 100%; }
-    @media (max-width: 640px) {
-      .pdf-frame { height: 380px; }
-    }
+   .pdf-reader-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 420px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+#pdfCanvas {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: 0.5rem;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+}
+
+@media (max-width: 640px) {
+  .pdf-reader-stage {
+    height: 290px;
+    padding: 8px;
+  }
+
+  #pdfCanvas {
+    max-width: calc(100vw - 48px);
+    max-height: 274px;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 1023px) {
+  .pdf-reader-stage {
+    height: 500px;
+  }
+}
+
+@media (min-width: 1024px) {
+  .pdf-reader-stage {
+    height: 620px;
+  }
+}
     @media (min-width: 641px) and (max-width: 1023px) {
       .pdf-frame { height: 500px; }
     }
@@ -113,9 +154,14 @@
             </div>
           </div>
 
-          <div class="page-turner overflow-hidden rounded-xl border border-slate-100 bg-slate-50 sm:rounded-2xl" id="pageTurner">
-            <iframe id="pdfViewer" class="pdf-frame" title="同貓貓親近的必殺攻略 PDF 閱讀器" src="Tong-Mao-Mao-Qin-Jin-De-Bi-Sha-Gong-Lue-1.pdf#page=1&view=FitH" loading="lazy"></iframe>
-          </div>
+<div 
+  class="page-turner overflow-hidden rounded-xl border border-slate-100 bg-slate-50 sm:rounded-2xl" 
+  id="pageTurner"
+>
+  <div class="pdf-reader-stage">
+    <canvas id="pdfCanvas" aria-label="同貓貓親近的必殺攻略 PDF 第 1 頁"></canvas>
+  </div>
+</div>
 
           <div class="mt-3 flex flex-col items-center justify-between gap-3 px-1 sm:mt-4 sm:flex-row">
             <p class="text-center text-xs leading-5 text-slate-500 sm:text-left">如 Viewer 未能顯示 PDF，請使用「開啟完整 PDF」以新分頁閱讀。</p>
@@ -155,47 +201,133 @@
 
   <footer class="border-t border-slate-100 bg-white px-4 py-8 text-center text-xs leading-6 text-slate-500"><p class="font-semibold text-slate-600">© 2026 @moolilakang 毛厘啦更 × GreenSTORE HK</p><p class="mx-auto mt-2 max-w-3xl">本頁與 PDF 內容供一般貓咪照護及互動教育參考，不能替代獸醫或合資格貓行為專家的建議。若貓咪突然抗拒接觸、行為明顯改變、疼痛或皮膚不適，請先諮詢獸醫。</p></footer>
 
-  <script>
-    const totalPages = 15;
-    let currentPage = 1;
+<script>
+  const pdfUrl = 'Tong-Mao-Mao-Qin-Jin-De-Bi-Sha-Gong-Lue-1.pdf';
 
-    function updateViewer(direction = '') {
-      const viewer = document.getElementById('pdfViewer');
-      const turner = document.getElementById('pageTurner');
-      const indicator = document.getElementById('pageIndicator');
-      const prev = document.getElementById('prevPage');
-      const next = document.getElementById('nextPage');
+  let pdfDocument = null;
+  let currentPage = 1;
+  let totalPages = 15;
+  let isRendering = false;
 
-      if (direction) {
-        turner.classList.add(direction === 'next' ? 'turn-next' : 'turn-prev');
-        setTimeout(() => {
-          viewer.src = `Tong-Mao-Mao-Qin-Jin-De-Bi-Sha-Gong-Lue-1.pdf#page=${currentPage}&view=FitH`;
-          turner.classList.remove('turn-next', 'turn-prev');
-        }, 180);
-      } else {
-        viewer.src = `Tong-Mao-Mao-Qin-Jin-De-Bi-Sha-Gong-Lue-1.pdf#page=${currentPage}&view=FitH`;
-      }
+  const canvas = document.getElementById('pdfCanvas');
+  const canvasContext = canvas.getContext('2d');
+  const pageTurner = document.getElementById('pageTurner');
+  const pageIndicator = document.getElementById('pageIndicator');
+  const previousButton = document.getElementById('prevPage');
+  const nextButton = document.getElementById('nextPage');
 
-      indicator.textContent = `第 ${currentPage} / ${totalPages} 頁`;
-      prev.disabled = currentPage === 1;
-      next.disabled = currentPage === totalPages;
-      prev.classList.toggle('opacity-40', currentPage === 1);
-      next.classList.toggle('opacity-40', currentPage === totalPages);
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  async function loadPdf() {
+    try {
+      pdfDocument = await pdfjsLib.getDocument(pdfUrl).promise;
+      totalPages = pdfDocument.numPages;
+      await renderPage();
+    } catch (error) {
+      console.error('PDF loading error:', error);
+
+      document.querySelector('.pdf-reader-stage').innerHTML = `
+        <div class="px-5 text-center text-sm leading-6 text-slate-600">
+          暫時未能在此瀏覽器顯示攻略。<br>
+          <a 
+            href="${pdfUrl}" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            class="mt-3 inline-block font-bold text-[#315d2c] underline"
+          >
+            開啟完整 PDF 閱讀 →
+          </a>
+        </div>
+      `;
+    }
+  }
+
+  async function renderPage(direction = '') {
+    if (!pdfDocument || isRendering) return;
+
+    isRendering = true;
+
+    if (direction) {
+      pageTurner.classList.add(
+        direction === 'next' ? 'turn-next' : 'turn-prev'
+      );
     }
 
-    function changePage(amount) {
-      const nextPage = currentPage + amount;
-      if (nextPage < 1 || nextPage > totalPages) return;
-      currentPage = nextPage;
-      updateViewer(amount > 0 ? 'next' : 'prev');
+    try {
+      const page = await pdfDocument.getPage(currentPage);
+
+      const stage = document.querySelector('.pdf-reader-stage');
+      const stageWidth = stage.clientWidth - 16;
+      const stageHeight = stage.clientHeight - 16;
+
+      const naturalViewport = page.getViewport({ scale: 1 });
+      const scale = Math.min(
+        stageWidth / naturalViewport.width,
+        stageHeight / naturalViewport.height
+      );
+
+      const viewport = page.getViewport({ scale });
+
+      const deviceScale = window.devicePixelRatio || 1;
+
+      canvas.width = Math.floor(viewport.width * deviceScale);
+      canvas.height = Math.floor(viewport.height * deviceScale);
+
+      canvas.style.width = `${Math.floor(viewport.width)}px`;
+      canvas.style.height = `${Math.floor(viewport.height)}px`;
+
+      canvasContext.setTransform(deviceScale, 0, 0, deviceScale, 0, 0);
+
+      await page.render({
+        canvasContext,
+        viewport
+      }).promise;
+
+      canvas.setAttribute(
+        'aria-label',
+        `同貓貓親近的必殺攻略 PDF 第 ${currentPage} 頁`
+      );
+
+      pageIndicator.textContent = `第 ${currentPage} / ${totalPages} 頁`;
+
+      previousButton.disabled = currentPage === 1;
+      nextButton.disabled = currentPage === totalPages;
+
+      previousButton.classList.toggle('opacity-40', currentPage === 1);
+      nextButton.classList.toggle('opacity-40', currentPage === totalPages);
+
+    } catch (error) {
+      console.error('PDF page rendering error:', error);
+    } finally {
+      setTimeout(() => {
+        pageTurner.classList.remove('turn-next', 'turn-prev');
+        isRendering = false;
+      }, 180);
     }
+  }
 
-    document.addEventListener('keydown', event => {
-      if (event.key === 'ArrowRight') changePage(1);
-      if (event.key === 'ArrowLeft') changePage(-1);
-    });
+  function changePage(amount) {
+    const nextPage = currentPage + amount;
 
-    updateViewer();
-  </script>
+    if (nextPage < 1 || nextPage > totalPages || isRendering) return;
+
+    currentPage = nextPage;
+    renderPage(amount > 0 ? 'next' : 'prev');
+  }
+
+  document.addEventListener('keydown', event => {
+    if (event.key === 'ArrowRight') changePage(1);
+    if (event.key === 'ArrowLeft') changePage(-1);
+  });
+
+  window.addEventListener('resize', () => {
+    if (pdfDocument && !isRendering) {
+      renderPage();
+    }
+  });
+
+  loadPdf();
+</script>
 </body>
 </html>
